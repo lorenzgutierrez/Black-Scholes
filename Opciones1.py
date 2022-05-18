@@ -10,23 +10,17 @@ Created on Sat Sep  1 12:27:18 2018
 import numpy as np
 import pandas as pd
 import time
-import csv
+import datetime
 from scipy.stats import norm
-import difflib as dif
+
+pd.set_option('display.max_columns', None)
+
+
 now = time.time()
 month = 2678400
-'''Estos datos son los que necesitan ser actualizados'''
-DI = time.mktime(((2018,12,21,0,0,0,0,0,0)))
-FE = time.mktime((2019,2,15,0,0,0,0,0,0))
-AB = time.mktime((2020,4,17,0,0,0,0,0,0))
-JU = time.mktime((2020,6,19,0,0,0,0,0,0))
-AG = time.mktime((2020,8,22,0,0,0,0,0,0))
-OC = time.mktime((2021,10,15,0,0,0,0,0,0))
-months = ['AG','OC','AB','JU'] #ir agregando meses
-target = "OC"
 Risk_interest = 0.34#'Esta es la taza anual de volatibilidad' Debe ser actualizada cada dia
 
-'''Este' Script tiene como objetivo encontrar las opciones que esten cotizando en Bullarket a un precio
+'''Este' Script tiene como objetivo encontrar las opciones que esten cotizando en la bolsa Argentina a un precio
 menor que el teorico segun el modelo de Black Scholes europeo'''
 
 '''Black Scholes Calculator. Creo que funciona con T en meses, no estoy seguro, falta calibracion.
@@ -51,68 +45,45 @@ def See_Option(string):
     print(df[df['Opcion']==string])
     
 '''DATAFRAME CON INFORMACION (VER COLUMNAS)'''          
-df =  pd.read_csv('DATOS_call.txt',delimiter = ',',usecols = ['Opcion','Precio','Venta','Target','Vencimiento','Precio_Accion','volatilidad'])
-df2 =  pd.read_csv('DATOS_put.txt',delimiter = ',',usecols = ['Opcion','Precio','Venta','Target','Vencimiento','Precio_Accion','volatilidad'])
+df =  pd.read_csv('DATOS.txt',delimiter = ',',usecols = ['Accion','Cotizacion','Tipo_opcion','Target','Vencimiento','Opcion_cotizacion','volatilidad'])
+df.Target = df.Target.apply(lambda row: float(row.replace(",","")))
 
-def  T_month(string):
+df = df[df.Tipo_opcion == "Call"]
+
+### Convertimos el vencimiento a un formato en segundos
+def Convert_to_seconds(timestring):
+    a = timestring.split("/")
+    vencimiento = time.mktime(((int(a[-1]),int(a[1]),int(a[0]),0,0,0,0,0,0)))
+    return vencimiento
+    
+### Calulamos la difrencia con hoy
+def  T_diff(seconds):
     global t_month
-    if string == 'OC':
-        t_month = (OC-now)/(month*10)
-    elif string=='DI':
-        t_month = (DI-now)/(month*10)
-    elif string == 'FE':
-        t_month = (FE-now)/(month*10)
-    elif string == 'AB':
-        t_month = (AB-now)/(month*10)
-    elif string == 'JU':
-        t_month = (JU-now)/(month*10)
-    elif string == 'AG':
-        t_month = (AG-now)/(month*10)
+    t_month = (seconds-now)/(month*10)
     return t_month
 
-def similar(a, b):
-    return dif.SequenceMatcher(None, a, b).ratio()  
 
-def Teorico_call(Opcion,X,month,sigma = Risk_interest, dataframe = df):
-    aux = df[(df['Opcion'] == Opcion)]
-    aux = aux[(aux['P_A']!=np.NaN) & (aux['Vol']!=np.NaN)]
-    aux = aux.iloc[0]
-    S,Vol= aux[4],aux[5]
-    res = bs_call(S,X,T_month(month),sigma,Vol)
-    return res
-
+df.Vencimiento = df.Vencimiento.apply(lambda row: Convert_to_seconds(row))
 
 df.loc[df['volatilidad']>0.6,'volatilidad']=0.6
-#df2.loc[df2['Volatilidad']>0.6,'Volatilidad']=0.6
 df['Teorico'] = 0.
-df2['Teorico'] = 0.
-for i in range(len(df)):
-    for mes in months:
-        if (df['Vencimiento'].iloc[i] not in months) and (similar(df['Vencimiento'].iloc[i],mes) > 0.0): df['Vencimiento'].iloc[i] = mes
-       
-        
 
-df.Teorico = df.apply(lambda row: bs_call(row.Precio_Accion,row.Target,T_month(row.Vencimiento),Risk_interest,row.volatilidad),axis = 1)
-df2.Teorico = df.apply(lambda row: bs_put(row.Precio_Accion,row.Target,T_month(row.Vencimiento),Risk_interest,row.volatilidad),axis = 1)        
+df.Teorico = df.apply(lambda row: bs_call(row.Cotizacion,float(row.Target),T_diff(row.Vencimiento),Risk_interest,row.volatilidad),axis = 1)
     
 df['Teorico'] = round(df['Teorico'],2)    
-#df['P_A'].fillna(0,inplace = True)
-df = df.rename(index = str,columns = {"Vencimiento":"Vencmt.","Precio_Accion":"P_A","volatilidad":"Vol"})
-#df['Time_to_Venc'] = df.apply(T_month2,axis = 1)
-df = df.drop(columns = ['Precio'])
-df['%VT'] = round((df['Venta'])*100/df['Teorico'],2)
-Useful = df[(df['Vencmt.'] == target)]
-Useful = Useful[Useful['Venta']!=0.0]
+df = df.rename(index = str,columns = {"Vencimiento":"Vencmt.","Cotizacion":"P_A","volatilidad":"Vol"})
+df['%VT'] = round((df['Opcion_cotizacion'])*100/df['Teorico'],2)
+Useful = df[df['Opcion_cotizacion']!=0.0]
 Useful = Useful[Useful['%VT']<100]
 
-df2['Teorico'] = round(df2['Teorico'],2)    
-df2 = df2.replace({'Venta': {0.000:np.nan}})
-df2['%VT'] = round((df2['Venta'])*100/df2['Teorico'],2)
-df2 = df2.rename(index = str,columns = {"Vencimiento":"Vencmt.","Precio_Accion":"P_A","volatilidad":"Vol"})
-Useful2 = df2[df2['Venta']<df2['Teorico']]
-                
-print(Useful)
-#print(Useful2)
+Useful["Vencmt."] = Useful["Vencmt."].apply(lambda row: pd.to_datetime(row,unit = "s").strftime("%Y-%m-%d"))
+Useful.sort_values(by = "%VT",inplace=True)
+
+
+Useful.reset_index(inplace=True,drop=True)
+Useful.to_csv("finaldata.csv",columns= ["Accion","P_A","Target","Vencmt.","Opcion_cotizacion","Vol","Teorico","%VT"])
+
+print(Useful[["Accion","Tipo_opcion","P_A","Target","Opcion_cotizacion","Vencmt.","%VT"]])
 
 
     

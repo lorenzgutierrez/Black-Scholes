@@ -12,6 +12,7 @@ Created on Thu Sep  6 13:40:56 2018
 from bs4 import BeautifulSoup
 import urllib
 import requests
+from pdfminer.layout import LTTextBoxHorizontal
 from pdfminer.high_level import extract_pages
 import numpy as np
 
@@ -49,17 +50,25 @@ def download_file(download_url, filename):
 def extract_volatility_from_pdf(pdf_path):
     """Usando el reporte diario (pdf) extrae la volatilidad de las acciones"""
     
+    LIDER = ["YPFD","GGAL","BYMA"]
+    
     pdf_path = "report.pdf"
     a = extract_pages(pdf_path,page_numbers = [1])
-
-    indx = [74,86]
 
     elements = []
     for page_layout in a:
         for element in page_layout:
-            elements.append(element)
+            if isinstance(element,LTTextBoxHorizontal):
+                elements.append(element)
+            
+    index = None
+    for i,el in enumerate(elements):
+        r = el.get_text().split("\n")
+        result = all([tiket in r for tiket in LIDER])
+        if result == True: index = i
         
-        data_raw = np.array([elements[indx[0]].get_text().split("\n"),
-                    elements[indx[1]].get_text().replace("%","").split("\n")],dtype=str).T
+        
+    data_raw = np.array([elements[index].get_text().split("\n"),
+                    elements[index + 23].get_text().replace("%","").split("\n")],dtype=str).T
 
     np.savetxt("volatilidad.txt",data_raw,delimiter = ",",fmt = "%s")
